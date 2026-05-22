@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Glean Assistant</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 100%; height: 100%; overflow: hidden; background: #fff; font-family: 'Segoe UI', Tahoma, sans-serif; }
+
+  #launch-screen {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    gap: 16px;
+    background: #f3f6fb;
+  }
+
+  #launch-btn {
+    padding: 13px 28px;
+    font-size: 15px;
+    font-weight: 600;
+    color: #fff;
+    background: #1a73e8;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    font-family: inherit;
+    box-shadow: 0 4px 12px rgba(26,115,232,0.35);
+  }
+  #launch-btn:hover { opacity: 0.88; }
+  #launch-btn:disabled { opacity: 0.55; cursor: default; }
+
+  #launch-label {
+    font-size: 13px;
+    color: #555;
+  }
+
+  #gc {
+    display: none;
+    position: relative;
+    width: 100%;
+    height: 100%;
+  }
+
+  #err {
+    display: none;
+    padding: 28px;
+    color: #c62828;
+    font-size: 14px;
+    line-height: 1.8;
+  }
+</style>
+<!-- SDK is NOT loaded automatically — it is injected on demand when the user clicks Launch -->
+</head>
+<body>
+
+  <div id="launch-screen">
+    <button id="launch-btn" onclick="launch()">Launch Glean Assistant</button>
+    <span id="launch-label">Click to connect to your Glean account</span>
+  </div>
+
+  <div id="gc"></div>
+  <div id="err"></div>
+
+  <script>
+    // ── CONFIGURE IF NEEDED ───────────────────────────────────────────────────
+    var WEB_APP_URL = "https://app.glean.com";
+    var BACKEND_URL = "https://oida-be.glean.com";
+    var AGENT_ID    = "";  // Optional: your Glean agent ID
+    // ─────────────────────────────────────────────────────────────────────────
+
+    var launched = false;
+
+    function setLabel(msg) {
+      document.getElementById('launch-label').textContent = msg;
+    }
+
+    function showErr(msg) {
+      document.getElementById('gc').style.display = 'none';
+      document.getElementById('launch-screen').style.display = 'none';
+      var e = document.getElementById('err');
+      e.style.display = 'block';
+      e.textContent = msg;
+    }
+
+    function renderChat() {
+      document.getElementById('launch-screen').style.display = 'none';
+      var container = document.getElementById('gc');
+      container.style.display = 'block';
+      try {
+        var opts = {
+          webAppUrl: WEB_APP_URL,
+          backend:   BACKEND_URL,
+          enable3PCookieAccessRequest: true,
+          customizations: {
+            features: {
+              chatMenu: false,
+              chatSettings: false,
+              createPrompt: false,
+              clearChat: true,
+              feedback: true,
+              applicationLibrary: false,
+              promptLibrary: false
+            }
+          }
+        };
+        if (AGENT_ID) { opts.agentId = AGENT_ID; }
+        window.GleanWebSDK.renderChat(container, opts);
+      } catch (e) {
+        showErr('Glean SDK error: ' + (e && e.message ? e.message : String(e)));
+      }
+    }
+
+    function loadSdkAndRender() {
+      setLabel('Loading Glean SDK…');
+
+      var script = document.createElement('script');
+      script.src = 'https://app.glean.com/embedded-search-latest.min.js';
+
+      var timeout = setTimeout(function () {
+        showErr('Glean SDK did not load within 15 s. Check network access to https://app.glean.com.');
+      }, 15000);
+
+      // glean:ready fires when the SDK is initialised
+      window.addEventListener('glean:ready', function () {
+        clearTimeout(timeout);
+        setLabel('Connecting…');
+        renderChat();
+      }, { once: true });
+
+      // Fallback: some SDK versions set window.GleanWebSDK without firing the event
+      script.onload = function () {
+        if (window.GleanWebSDK) {
+          clearTimeout(timeout);
+          // glean:ready may have already fired; if not, it will fire shortly
+          setTimeout(function () {
+            if (window.GleanWebSDK && document.getElementById('launch-screen').style.display !== 'none') {
+              renderChat();
+            }
+          }, 500);
+        }
+      };
+
+      script.onerror = function () {
+        clearTimeout(timeout);
+        showErr('Could not load the Glean SDK from https://app.glean.com. Check your network connection.');
+      };
+
+      document.head.appendChild(script);
+    }
+
+    function launch() {
+      if (launched) return;
+      launched = true;
+
+      var btn = document.getElementById('launch-btn');
+      btn.disabled = true;
+      setLabel('Requesting access…');
+
+      // Request storage access with user gesture in this frame,
+      // then load the SDK regardless of outcome.
+      var req = document.requestStorageAccess
+        ? document.requestStorageAccess()
+        : Promise.resolve();
+
+      req
+        .catch(function () { /* denied — proceed anyway */ })
+        .finally(function () { loadSdkAndRender(); });
+    }
+  </script>
+</body>
+</html>
